@@ -361,19 +361,18 @@ public class ExecMojoTest
 
     public void testIsResultCodeAFailure()
     {
-        ExecMojo execMojo = new ExecMojo();
-        assertTrue( execMojo.isResultCodeAFailure( 1 ) );
-        assertFalse( execMojo.isResultCodeAFailure( 0 ) );
+        assertTrue( org.codehaus.mojo.exec.Executor.isResultCodeAFailure( 1, null ) );
+        assertFalse( org.codehaus.mojo.exec.Executor.isResultCodeAFailure( 0, null ) );
 
-        execMojo.setSuccessCodes( new Integer[0] );
-        assertTrue( execMojo.isResultCodeAFailure( 1 ) );
-        assertFalse( execMojo.isResultCodeAFailure( 0 ) );
+        int[] sucessCodes = new int[] { 0 };
+        assertTrue( org.codehaus.mojo.exec.Executor.isResultCodeAFailure( 1, sucessCodes ) );
+        assertFalse( org.codehaus.mojo.exec.Executor.isResultCodeAFailure( 0, sucessCodes ) );
 
-        execMojo.setSuccessCodes( new Integer[] { Integer.valueOf( "2" ), Integer.valueOf( "5" ) } );
-        assertTrue( execMojo.isResultCodeAFailure( 0 ) );
-        assertTrue( execMojo.isResultCodeAFailure( 10 ) );
-        assertFalse( execMojo.isResultCodeAFailure( 2 ) );
-        assertFalse( execMojo.isResultCodeAFailure( 5 ) );
+        sucessCodes = new int[] { 2, 5 };
+        assertTrue( org.codehaus.mojo.exec.Executor.isResultCodeAFailure( 0, sucessCodes ) );
+        assertTrue( org.codehaus.mojo.exec.Executor.isResultCodeAFailure( 10, sucessCodes ) );
+        assertFalse( org.codehaus.mojo.exec.Executor.isResultCodeAFailure( 2, sucessCodes ) );
+        assertFalse( org.codehaus.mojo.exec.Executor.isResultCodeAFailure( 5, sucessCodes ) );
     }
 
     // MEXEC-81

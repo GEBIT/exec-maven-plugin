@@ -26,6 +26,7 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -33,6 +34,7 @@ import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 
+import org.apache.commons.exec.CommandLine;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.factory.ArtifactFactory;
 import org.apache.maven.artifact.metadata.ArtifactMetadataSource;
@@ -230,6 +232,60 @@ public class ExecJavaMojo
     @Parameter
     private List<String> additionalClasspathElements;
 
+
+    /**
+     * Whether to fork a new java process instead of starting the application in the current VM.
+     * 
+     * @since 1.5
+     */
+    @Parameter(property = "exec.fork", defaultValue = "false")
+    private boolean fork;
+
+    /**
+     * Exit codes to be resolved as successful execution for non-compliant applications (applications not returning 0
+     * for success). Only if <code>fork</code> is enabled
+     *
+     * @since 1.5
+     */
+    @Parameter
+    private int[] successCodes;
+
+    /**
+     * A list of VM arguments to be passed if a VM is actually forked.
+     * 
+     * @since 1.5
+     */
+    @Parameter
+    private String[] vmargs;
+
+    /**
+     * The current working directory. Optional. Only used if fork is enabled. If not specified, basedir will be used.
+     *
+     * @since 1.5
+     */
+    @Parameter(property = "exec.workingdir")
+    private File workingDirectory;
+
+    /**
+     * @since 1.5
+     */
+    @Parameter(readonly = true, required = true, defaultValue = "${basedir}")
+    private File basedir;
+
+    public void setSuccessCodes( Integer... list )
+    {
+        this.successCodes = new int[list.length];
+        for ( int index = 0; index < list.length; index++ )
+        {
+            successCodes[index] = list[index];
+        }
+    }
+
+    public int[] getSuccessCodes()
+    {
+        return successCodes;
+    }
+
     /**
      * Execute goal.
      * 
@@ -271,79 +327,132 @@ public class ExecJavaMojo
             getLog().debug( msg );
         }
 
-        IsolatedThreadGroup threadGroup = new IsolatedThreadGroup( mainClass /* name */);
-        Thread bootstrapThread = new Thread( threadGroup, new Runnable()
-        {
-            public void run()
+        if (fork) {
+            handleWorkingDirectory();
+
+            List<String> commandArguments = new ArrayList<String>();
+            if (vmargs != null) {
+                for (String vmarg : vmargs) {
+                    commandArguments.add(vmarg);
+                }
+            }
+            if (systemProperties != null) {
+                for (Property systemProperty : systemProperties) {
+                    if (systemProperty.getValue() != null) {
+                        commandArguments.add("-D" + systemProperty.getKey() + "=" + systemProperty.getValue());
+                    } else {
+                        commandArguments.add("-D" + systemProperty.getKey());
+                    }
+                }
+            }
+            // add the classpath
+            commandArguments.add("-cp");
+
+            List<URL> classpathURLs = new ArrayList<URL>();
+            this.addRelevantPluginDependenciesToClasspath(classpathURLs);
+            this.addRelevantProjectDependenciesToClasspath(classpathURLs);
+            this.addAdditionalClasspathElements(classpathURLs);
+            StringBuilder classpath = new StringBuilder();
+            for (URL classpathURL : classpathURLs) {
+                if (classpathURL.getPath() != null) {
+                    if (classpath.length() > 0) {
+                        classpath.append(File.pathSeparator);
+                    }
+                    classpath.append(classpathURL.getPath());
+                } else {
+                    throw new MojoExecutionException("Can't put '" + classpathURL + "' on the classpath.");
+                }
+            }
+            commandArguments.add(classpath.toString());
+            commandArguments.add(mainClass);
+            if (arguments != null) {
+                commandArguments.addAll(Arrays.asList(arguments));
+            }
+
+            CommandLine commandLine = new CommandLine("java");
+            String[] args = commandArguments.toArray(new String[commandArguments.size()]);
+
+            commandLine.addArguments(args, false);
+
+            Executor exec = new Executor(getLog(), false, false);
+
+            exec.execute(workingDirectory, null, commandLine, null, successCodes);
+
+        } else {
+            IsolatedThreadGroup threadGroup = new IsolatedThreadGroup( mainClass /* name */);
+            Thread bootstrapThread = new Thread( threadGroup, new Runnable()
             {
+                public void run()
+                {
+                    try
+                    {
+                        Method main =
+                            Thread.currentThread().getContextClassLoader().loadClass( mainClass ).getMethod( "main",
+                                                                                                             new Class[] { String[].class } );
+                        if ( !main.isAccessible() )
+                        {
+                            getLog().debug( "Setting accessibility to true in order to invoke main()." );
+                            main.setAccessible( true );
+                        }
+                        if ( !Modifier.isStatic( main.getModifiers() ) )
+                        {
+                            throw new MojoExecutionException( "Can't call main(String[])-method because it is not static." );
+                        }
+                        main.invoke( null, new Object[] { arguments } );
+                    }
+                    catch ( NoSuchMethodException e )
+                    { // just pass it on
+                        Thread.currentThread().getThreadGroup().uncaughtException( Thread.currentThread(),
+                                                                                   new Exception(
+                                                                                                  "The specified mainClass doesn't contain a main method with appropriate signature.",
+                                                                                                  e ) );
+                    }
+                    catch ( Exception e )
+                    { // just pass it on
+                        Thread.currentThread().getThreadGroup().uncaughtException( Thread.currentThread(), e );
+                    }
+                }
+            }, mainClass + ".main()" );
+            bootstrapThread.setContextClassLoader( getClassLoader() );
+            setSystemProperties();
+    
+            bootstrapThread.start();
+            joinNonDaemonThreads( threadGroup );
+            // It's plausible that spontaneously a non-daemon thread might be created as we try and shut down,
+            // but it's too late since the termination condition (only daemon threads) has been triggered.
+            if ( keepAlive )
+            {
+                getLog().warn( "Warning: keepAlive is now deprecated and obsolete. Do you need it? Please comment on MEXEC-6." );
+                waitFor( 0 );
+            }
+    
+            if ( cleanupDaemonThreads )
+            {
+    
+                terminateThreads( threadGroup );
+    
                 try
                 {
-                    Method main =
-                        Thread.currentThread().getContextClassLoader().loadClass( mainClass ).getMethod( "main",
-                                                                                                         new Class[] { String[].class } );
-                    if ( !main.isAccessible() )
-                    {
-                        getLog().debug( "Setting accessibility to true in order to invoke main()." );
-                        main.setAccessible( true );
-                    }
-                    if ( !Modifier.isStatic( main.getModifiers() ) )
-                    {
-                        throw new MojoExecutionException( "Can't call main(String[])-method because it is not static." );
-                    }
-                    main.invoke( null, new Object[] { arguments } );
+                    threadGroup.destroy();
                 }
-                catch ( NoSuchMethodException e )
-                { // just pass it on
-                    Thread.currentThread().getThreadGroup().uncaughtException( Thread.currentThread(),
-                                                                               new Exception(
-                                                                                              "The specified mainClass doesn't contain a main method with appropriate signature.",
-                                                                                              e ) );
-                }
-                catch ( Exception e )
-                { // just pass it on
-                    Thread.currentThread().getThreadGroup().uncaughtException( Thread.currentThread(), e );
+                catch ( IllegalThreadStateException e )
+                {
+                    getLog().warn( "Couldn't destroy threadgroup " + threadGroup, e );
                 }
             }
-        }, mainClass + ".main()" );
-        bootstrapThread.setContextClassLoader( getClassLoader() );
-        setSystemProperties();
-
-        bootstrapThread.start();
-        joinNonDaemonThreads( threadGroup );
-        // It's plausible that spontaneously a non-daemon thread might be created as we try and shut down,
-        // but it's too late since the termination condition (only daemon threads) has been triggered.
-        if ( keepAlive )
-        {
-            getLog().warn( "Warning: keepAlive is now deprecated and obsolete. Do you need it? Please comment on MEXEC-6." );
-            waitFor( 0 );
-        }
-
-        if ( cleanupDaemonThreads )
-        {
-
-            terminateThreads( threadGroup );
-
-            try
+    
+            if ( originalSystemProperties != null )
             {
-                threadGroup.destroy();
+                System.setProperties( originalSystemProperties );
             }
-            catch ( IllegalThreadStateException e )
+    
+            synchronized ( threadGroup )
             {
-                getLog().warn( "Couldn't destroy threadgroup " + threadGroup, e );
-            }
-        }
-
-        if ( originalSystemProperties != null )
-        {
-            System.setProperties( originalSystemProperties );
-        }
-
-        synchronized ( threadGroup )
-        {
-            if ( threadGroup.uncaughtException != null )
-            {
-                throw new MojoExecutionException( "An exception occured while executing the Java class. "
-                    + threadGroup.uncaughtException.getMessage(), threadGroup.uncaughtException );
+                if ( threadGroup.uncaughtException != null )
+                {
+                    throw new MojoExecutionException( "An exception occured while executing the Java class. "
+                        + threadGroup.uncaughtException.getMessage(), threadGroup.uncaughtException );
+                }
             }
         }
 
@@ -775,6 +884,32 @@ public class ExecJavaMojo
             {
                 Thread.currentThread().interrupt(); // good practice if don't throw
                 getLog().warn( "Spuriously interrupted while waiting for " + millis + "ms", e );
+            }
+        }
+    }
+
+    /**
+     * This is a convenient method to make the execute method a little bit more readable. It will define the
+     * workingDirectory to be the baseDir in case of workingDirectory is null. If the workingDirectory does not exist it
+     * will created.
+     *
+     * @throws MojoExecutionException
+     */
+    private void handleWorkingDirectory()
+        throws MojoExecutionException
+    {
+        if ( workingDirectory == null )
+        {
+            workingDirectory = basedir;
+        }
+
+        if ( !workingDirectory.exists() )
+        {
+            getLog().debug( "Making working directory '" + workingDirectory.getAbsolutePath() + "'." );
+            if ( !workingDirectory.mkdirs() )
+            {
+                throw new MojoExecutionException( "Could not make working directory: '"
+                    + workingDirectory.getAbsolutePath() + "'" );
             }
         }
     }

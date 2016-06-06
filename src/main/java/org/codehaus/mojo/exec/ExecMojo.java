@@ -19,11 +19,9 @@ package org.codehaus.mojo.exec;
  * under the License.
  */
 
-import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.URL;
 import java.util.ArrayList;
@@ -41,13 +39,8 @@ import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
 
 import org.apache.commons.exec.CommandLine;
-import org.apache.commons.exec.DefaultExecutor;
-import org.apache.commons.exec.ExecuteException;
-import org.apache.commons.exec.ExecuteResultHandler;
-import org.apache.commons.exec.Executor;
 import org.apache.commons.exec.OS;
 import org.apache.commons.exec.ProcessDestroyer;
-import org.apache.commons.exec.PumpStreamHandler;
 import org.apache.commons.exec.ShutdownHookProcessDestroyer;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.artifact.resolver.filter.AndArtifactFilter;
@@ -243,62 +236,15 @@ public class ExecMojo
 
             Map<String, String> enviro = handleSystemEnvVariables();
 
-            CommandLine commandLine = getExecutablePath( enviro, workingDirectory );
+            CommandLine commandLine = getExecutablePath(enviro, workingDirectory);
 
-            String[] args = commandArguments.toArray( new String[commandArguments.size()] );
+            String[] args = commandArguments.toArray(new String[commandArguments.size()]);
 
-            commandLine.addArguments( args, false );
+            commandLine.addArguments(args, false);
 
-            Executor exec = new DefaultExecutor();
-            exec.setWorkingDirectory( workingDirectory );
-            fillSuccessCodes( exec );
+            Executor exec = new Executor(getLog(), async, asyncDestroyOnShutdown);
 
-            getLog().debug( "Executing command line: " + commandLine );
-
-            try
-            {
-                int resultCode;
-                if ( outputFile != null )
-                {
-                    if ( !outputFile.getParentFile().exists() && !outputFile.getParentFile().mkdirs() )
-                    {
-                        getLog().warn( "Could not create non existing parent directories for log file: " + outputFile );
-                    }
-
-                    FileOutputStream outputStream = null;
-                    try
-                    {
-                        outputStream = new FileOutputStream( outputFile );
-
-                        resultCode = executeCommandLine( exec, commandLine, enviro, outputStream );
-                    }
-                    finally
-                    {
-                        IOUtil.close( outputStream );
-                    }
-                }
-                else
-                {
-                    resultCode = executeCommandLine( exec, commandLine, enviro, System.out, System.err );
-                }
-
-                if ( isResultCodeAFailure( resultCode ) )
-                {
-                    String message = "Result of " + commandLine.toString() + " execution is: '" + resultCode + "'.";
-                    getLog().error( message );
-                    throw new MojoExecutionException( message );
-                }
-            }
-            catch ( ExecuteException e )
-            {
-                getLog().error( "Command execution failed.", e );
-                throw new MojoExecutionException( "Command execution failed.", e );
-            }
-            catch ( IOException e )
-            {
-                getLog().error( "Command execution failed.", e );
-                throw new MojoExecutionException( "Command execution failed.", e );
-            }
+            exec.execute(workingDirectory, outputFile, commandLine, enviro, successCodes);
 
             registerSourceRoots();
         }
@@ -455,30 +401,6 @@ public class ExecMojo
                 commandArguments.add( (String) argument );
             }
         }
-    }
-
-    private void fillSuccessCodes( Executor exec )
-    {
-        if ( successCodes != null && successCodes.length > 0 )
-        {
-            exec.setExitValues( successCodes );
-        }
-    }
-
-    boolean isResultCodeAFailure( int result )
-    {
-        if ( successCodes == null || successCodes.length == 0 )
-        {
-            return result != 0;
-        }
-        for ( int successCode : successCodes )
-        {
-            if ( successCode == result )
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     private boolean isLongClassPathArgument( String arg )
@@ -665,78 +587,6 @@ public class ExecMojo
         }
 
         return paths;
-    }
-
-    protected int executeCommandLine( Executor exec, CommandLine commandLine, Map<String, String> enviro,
-                                      OutputStream out, OutputStream err )
-                                          throws ExecuteException, IOException
-    {
-        // note: don't use BufferedOutputStream here since it delays the outputs MEXEC-138
-        PumpStreamHandler psh = new PumpStreamHandler( out, err, System.in );
-        return executeCommandLine( exec, commandLine, enviro, psh );
-    }
-
-    protected int executeCommandLine( Executor exec, CommandLine commandLine, Map<String, String> enviro,
-                                      FileOutputStream outputFile )
-                                          throws ExecuteException, IOException
-    {
-        BufferedOutputStream bos = new BufferedOutputStream( outputFile );
-        PumpStreamHandler psh = new PumpStreamHandler( bos );
-        return executeCommandLine( exec, commandLine, enviro, psh );
-    }
-
-    protected int executeCommandLine( Executor exec, final CommandLine commandLine, Map<String, String> enviro,
-                                      final PumpStreamHandler psh )
-                                          throws ExecuteException, IOException
-    {
-        exec.setStreamHandler( psh );
-
-        int result;
-        try
-        {
-            psh.start();
-            if ( async )
-            {
-                if (asyncDestroyOnShutdown)
-                {
-                    exec.setProcessDestroyer( getProcessDestroyer() );
-                }
-
-                exec.execute( commandLine, enviro, new ExecuteResultHandler()
-                {
-                    public void onProcessFailed( ExecuteException e )
-                    {
-                        getLog().error( "Async process failed for: " + commandLine, e );
-                    }
-
-                    public void onProcessComplete( int exitValue )
-                    {
-                        getLog().info( "Async process complete, exit value = " + exitValue + " for: " + commandLine );
-                        try
-                        {
-                            psh.stop();
-                        }
-                        catch ( IOException e )
-                        {
-                            getLog().error( "Error stopping async process stream handler for: " + commandLine, e );
-                        }
-                    }
-                } );
-                result = 0;
-            }
-            else
-            {
-                result = exec.execute( commandLine, enviro );
-            }
-        }
-        finally
-        {
-            if ( !async )
-            {
-                psh.stop();
-            }
-        }
-        return result;
     }
 
     //
