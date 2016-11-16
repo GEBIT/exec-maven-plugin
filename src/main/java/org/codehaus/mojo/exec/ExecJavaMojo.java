@@ -236,7 +236,7 @@ public class ExecJavaMojo
     /**
      * Whether to fork a new java process instead of starting the application in the current VM.
      * 
-     * @since 1.5
+     * @since 1.5-gebit1
      */
     @Parameter(property = "exec.fork", defaultValue = "false")
     private boolean fork;
@@ -245,15 +245,23 @@ public class ExecJavaMojo
      * Exit codes to be resolved as successful execution for non-compliant applications (applications not returning 0
      * for success). Only if <code>fork</code> is enabled
      *
-     * @since 1.5
+     * @since 1.5-gebit1
      */
     @Parameter
     private int[] successCodes;
 
     /**
+     * Path to the java executable, e.g. because you need a specific VM. Only used if fork is enabled.
+     * 
+     * @since 1.5-gebit3
+     */
+    @Parameter(property = "exec.java", defaultValue="java")
+    private String java;
+    
+    /**
      * A list of VM arguments to be passed if a VM is actually forked.
      * 
-     * @since 1.5
+     * @since 1.5-gebit1
      */
     @Parameter
     private String[] vmargs;
@@ -261,7 +269,7 @@ public class ExecJavaMojo
     /**
      * The current working directory. Optional. Only used if fork is enabled. If not specified, basedir will be used.
      *
-     * @since 1.5
+     * @since 1.5-gebit1
      */
     @Parameter(property = "exec.workingdir")
     private File workingDirectory;
@@ -369,7 +377,7 @@ public class ExecJavaMojo
                 commandArguments.addAll(Arrays.asList(arguments));
             }
 
-            CommandLine commandLine = new CommandLine("java");
+            CommandLine commandLine = new CommandLine(java);
             String[] args = commandArguments.toArray(new String[commandArguments.size()]);
 
             commandLine.addArguments(args, false);
