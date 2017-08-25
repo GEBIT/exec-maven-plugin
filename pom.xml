@@ -8,7 +8,7 @@
   </parent>
 
   <artifactId>exec-maven-plugin</artifactId>
-  <version>1.5.0-gebit3</version>
+  <version>1.5.0-gebit4</version>
   <packaging>maven-plugin</packaging>
 
   <name>Exec Maven Plugin</name>
