@@ -327,6 +327,7 @@ public abstract class AbstractExecJavaMojo
             handleWorkingDirectory();
 
             List<String> commandArguments = new ArrayList<String>();
+            String[] vmargs = getVMArgs();
             if (vmargs != null) {
                 for (String vmarg : vmargs) {
                     commandArguments.add(vmarg);
@@ -919,6 +920,10 @@ public abstract class AbstractExecJavaMojo
                     + workingDirectory.getAbsolutePath() + "'" );
             }
         }
+    }
+
+    protected String[] getVMArgs() throws MojoExecutionException {
+    	return vmargs;
     }
 
     protected abstract String getMainClass();
