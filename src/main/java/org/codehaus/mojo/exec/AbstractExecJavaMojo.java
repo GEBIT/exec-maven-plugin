@@ -922,6 +922,6 @@ public abstract class AbstractExecJavaMojo
     }
 
     protected abstract String getMainClass();
-    protected abstract String[] getArguments();
+    protected abstract String[] getArguments() throws MojoExecutionException;
     protected abstract void setArguments(String[] arguments);
 }
