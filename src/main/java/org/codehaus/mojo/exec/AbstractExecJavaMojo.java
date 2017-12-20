@@ -29,8 +29,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 
@@ -41,16 +43,18 @@ import org.apache.maven.artifact.metadata.ArtifactMetadataSource;
 import org.apache.maven.artifact.repository.ArtifactRepository;
 import org.apache.maven.artifact.resolver.ArtifactResolutionResult;
 import org.apache.maven.artifact.resolver.ArtifactResolver;
+import org.apache.maven.execution.MavenSession;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.Component;
-import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.project.MavenProject;
 import org.apache.maven.project.MavenProjectBuilder;
 import org.apache.maven.project.artifact.MavenMetadataSource;
+import org.apache.maven.toolchain.Toolchain;
+import org.apache.maven.toolchain.ToolchainManager;
+import org.apache.maven.toolchain.java.DefaultJavaToolChain;
 
 /**
  * Executes the supplied java class in the current VM with the enclosing project's dependencies as classpath.
@@ -69,6 +73,16 @@ public abstract class AbstractExecJavaMojo
 
     @Component
     private ArtifactMetadataSource metadataSource;
+
+    @Component
+    private ToolchainManager toolchainManager;
+
+    /**
+     * The enclosing session.
+     * @since 1.5.0-gebit7
+     */
+    @Parameter( defaultValue = "${session}", readonly = true )
+    protected MavenSession session;
 
     /**
      * @since 1.0
@@ -364,13 +378,28 @@ public abstract class AbstractExecJavaMojo
             commandArguments.add(getMainClass());
             commandArguments.addAll(Arrays.asList(getArguments()));
 
-            CommandLine commandLine = new CommandLine(java);
+            Toolchain toolchain = toolchainManager.getToolchainFromBuildContext("jdk", session);
+            String effectiveJava = java;
+            Map<String, String> env = new HashMap<String, String>(System.getenv());
+            if (toolchain != null) {
+                String toolchainJava = toolchain.findTool(java);
+                if (toolchainJava != null) {
+                    effectiveJava = toolchainJava;
+                }
+                if (toolchain instanceof DefaultJavaToolChain) {
+                    String javaHome = ((DefaultJavaToolChain) toolchain).getJavaHome();
+                    if (javaHome != null) {
+                        env.put("JAVA_HOME", javaHome);
+                    }
+                }
+            }
+            CommandLine commandLine = new CommandLine(effectiveJava);
             String[] args = commandArguments.toArray(new String[commandArguments.size()]);
 
             commandLine.addArguments(args, false);
 
             Executor exec = new Executor(getLog(), false, false);
-            exec.execute(workingDirectory, null, commandLine, null, successCodes);
+            exec.execute(workingDirectory, null, commandLine, env, successCodes);
 
         } else {
             IsolatedThreadGroup threadGroup = new IsolatedThreadGroup( getMainClass() /* name */);
