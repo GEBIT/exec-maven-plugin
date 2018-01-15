@@ -20,6 +20,7 @@ package org.codehaus.mojo.exec;
  */
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.net.MalformedURLException;
@@ -35,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.TreeSet;
 
 import org.apache.commons.exec.CommandLine;
 import org.apache.maven.artifact.Artifact;
@@ -55,6 +57,7 @@ import org.apache.maven.project.artifact.MavenMetadataSource;
 import org.apache.maven.toolchain.Toolchain;
 import org.apache.maven.toolchain.ToolchainManager;
 import org.apache.maven.toolchain.java.DefaultJavaToolChain;
+import org.codehaus.plexus.util.cli.CommandLineUtils;
 
 /**
  * Executes the supplied java class in the current VM with the enclosing project's dependencies as classpath.
@@ -272,6 +275,15 @@ public abstract class AbstractExecJavaMojo
     private File workingDirectory;
 
     /**
+     * Environment variables to pass to the executed program. Only used if fork is enabled. If not specified, 
+     * environment will be copied from the current process. JAVA_HOME is always set to the correct value.
+     *
+     * @since 1.5-gebit8
+     */
+    @Parameter
+    private Map<String, String> environmentVariables = new HashMap<String, String>();
+
+    /**
      * @since 1.5
      */
     @Parameter(readonly = true, required = true, defaultValue = "${basedir}")
@@ -380,7 +392,7 @@ public abstract class AbstractExecJavaMojo
 
             Toolchain toolchain = toolchainManager.getToolchainFromBuildContext("jdk", session);
             String effectiveJava = java;
-            Map<String, String> env = new HashMap<String, String>(System.getenv());
+            Map<String, String> env = handleSystemEnvVariables();
             if (toolchain != null) {
                 String toolchainJava = toolchain.findTool(java);
                 if (toolchainJava != null) {
@@ -393,6 +405,7 @@ public abstract class AbstractExecJavaMojo
                     }
                 }
             }
+
             CommandLine commandLine = new CommandLine(effectiveJava);
             String[] args = commandArguments.toArray(new String[commandArguments.size()]);
 
@@ -480,6 +493,42 @@ public abstract class AbstractExecJavaMojo
         }
 
         registerSourceRoots();
+    }
+
+    private Map<String, String> handleSystemEnvVariables()
+            throws MojoExecutionException
+    {
+
+        Map<String, String> enviro = new HashMap<String, String>();
+        try
+        {
+            Properties systemEnvVars = CommandLineUtils.getSystemEnvVars();
+            for ( Map.Entry<?, ?> entry : systemEnvVars.entrySet() )
+            {
+                enviro.put( (String) entry.getKey(), (String) entry.getValue() );
+            }
+        }
+        catch ( IOException x )
+        {
+            getLog().error( "Could not assign default system enviroment variables.", x );
+        }
+
+        if ( environmentVariables != null )
+        {
+            enviro.putAll( environmentVariables );
+        }
+
+        if ( this.getLog().isDebugEnabled() )
+        {
+            Set<String> keys = new TreeSet<String>();
+            keys.addAll( enviro.keySet() );
+            for ( String key : keys )
+            {
+                this.getLog().debug( "env: " + key + "=" + enviro.get( key ) );
+            }
+        }
+
+        return enviro;
     }
 
     /**
