@@ -275,6 +275,19 @@ public abstract class AbstractExecJavaMojo
     private File workingDirectory;
 
     /**
+     * Program standard and error output will be redirected to the file specified by this optional field. Only used if 
+     * fork is enabled. If not specified the standard Maven logging is used. <br/>
+     * <strong>Note:</strong> Be aware that <code>System.out</code> and <code>System.err</code> use buffering, so don't
+     * rely on the order!
+     *
+     * @since 1.5-gebit9
+     * @see java.lang.System#err
+     * @see java.lang.System#in
+     */
+    @Parameter( property = "exec.outputFile" )
+    private File outputFile;
+
+    /**
      * Environment variables to pass to the executed program. Only used if fork is enabled. If not specified, 
      * environment will be copied from the current process. JAVA_HOME is always set to the correct value.
      *
@@ -412,7 +425,7 @@ public abstract class AbstractExecJavaMojo
             commandLine.addArguments(args, false);
 
             Executor exec = new Executor(getLog(), false, false);
-            exec.execute(workingDirectory, null, commandLine, env, successCodes);
+            exec.execute(workingDirectory, outputFile, commandLine, env, successCodes);
 
         } else {
             IsolatedThreadGroup threadGroup = new IsolatedThreadGroup( getMainClass() /* name */);
