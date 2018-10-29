@@ -259,11 +259,12 @@ public abstract class AbstractExecJavaMojo
     private String java;
     
     /**
-     * A list of VM _arguments to be passed if a VM is actually forked.
+     * A list of VM _arguments to be passed if a VM is actually forked. If a single string is passed it will be
+     * split up like a command line argument, i.e. around spaces, not commas.
      * 
      * @since 1.5-gebit1
      */
-    @Parameter
+    @Parameter()
     private String[] vmargs;
 
     /**
@@ -1010,6 +1011,17 @@ public abstract class AbstractExecJavaMojo
                 throw new MojoExecutionException( "Could not make working directory: '"
                     + workingDirectory.getAbsolutePath() + "'" );
             }
+        }
+    }
+
+    /**
+     * If given as single string split according to commandline rules
+     */
+    public void setVmargs( String argline ) throws MojoExecutionException {
+        try {
+            vmargs = CommandLineUtils.translateCommandline( argline );
+        } catch ( Exception exc ) {
+            throw new MojoExecutionException( "Error translating Commandline.", exc );
         }
     }
 
